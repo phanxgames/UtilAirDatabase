@@ -185,7 +185,7 @@ public class UtilAirDatabase extends Sprite {
             //create database
             var db:DatabaseInfo = new DatabaseInfo("target");
             db.path = outputPath;
-            db.setPassword(password);
+            if (encrypt) db.setPassword(password);
             if (db.deleteIfExists()) {
                 winTrace("Output file already exists. Deleting file");
             }
@@ -259,7 +259,7 @@ public class UtilAirDatabase extends Sprite {
             //create database
             var dbTarget:DatabaseInfo = new DatabaseInfo("target");
             dbTarget.path = outputPath;
-            dbTarget.setPassword(password);
+            if (encrypt) dbTarget.setPassword(password);
             if (dbTarget.deleteIfExists()) {
                 winTrace("Output file already exists. Deleting file");
             }
@@ -304,7 +304,8 @@ public class UtilAirDatabase extends Sprite {
         source.conn.close();
 
         target.conn.begin();
-        for each (var table:SQLTableSchema in result.tables) {
+        var table:SQLTableSchema;
+        for each (table in result.tables) {
             exec(target.conn, table.sql);
             winTrace(table.sql);
         }
@@ -321,7 +322,7 @@ public class UtilAirDatabase extends Sprite {
 
         target.conn.begin();
 
-        for each (var table:SQLTableSchema in result.tables) {
+        for each (table in result.tables) {
             exec(target.conn, "INSERT INTO " + table.name + " SELECT * FROM source." + table.name + ";");
         }
 

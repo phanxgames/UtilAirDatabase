@@ -16,7 +16,8 @@ Create a database from an existing SQLite database file:
 UtilAirDatabase.exe db="C:\path\to\file.db" 
 out="C:\path\to\file.db" encrypt=true password="password"
 ```
-Omit the `encrypt` and `password` parameters to create an unencrypted database.
+Omit the `encrypt` and `password` parameters to create an unencrypted database.  
+The provided input database `db` cannot be encrypted.
 
 ### Decrypt Database
 
@@ -31,8 +32,8 @@ out="C:\path\to\file.db" decrypt=true password="password"
 - `sql` `="path.sql"` Path to the input SQL file.
 - `db` `="path.db"` Path to the input SQLite database file.
 - `out` `="path.db"` Path to the output SQLite database file.
-- `encrypt` `=true` Encrypt the database.
-- `decrypt`  `=true` Decrypt the database.
+- `encrypt` `=true` Encrypt the output database.
+- `decrypt`  `=true` Decrypt the provided database.
 - `password`  `="passwordHere"` Password for encryption/decryption.
 - `nogui` - Disable the GUI.
 
