@@ -1,8 +1,5 @@
 package {
 
-import com.sociodox.utils.Base64;
-import com.sociodox.utils.Base64;
-
 import flash.data.SQLConnection;
 import flash.data.SQLIndexSchema;
 import flash.data.SQLSchemaResult;
@@ -15,11 +12,12 @@ import flash.events.InvokeEvent;
 import flash.filesystem.File;
 import flash.filesystem.FileMode;
 import flash.filesystem.FileStream;
+import flash.net.Socket;
 import flash.text.TextField;
 import flash.text.TextFormat;
 import flash.utils.ByteArray;
 
-[SWF(width="1200", height="800", frameRate="60", backgroundColor="#FFFFFF")]
+[SWF(width="800", height="600", frameRate="60", backgroundColor="#FFFFFF")]
 public class UtilAirDatabase extends Sprite {
 
     /**
@@ -27,15 +25,18 @@ public class UtilAirDatabase extends Sprite {
      */
     public var textField:TextField;
     public var logBuffer:String;
+    public var socket:Socket;
 
     public var sqlPath:String;
     public var dbPath:String;
     public var encrypt:Boolean = false;
     public var decrypt:Boolean = false;
+    public var ignoreSqlError:Boolean = true;
     public var password:String;
     public var outputPath:String;
     public var nogui:Boolean = false;
-    
+    public var socketPort:int = 0;
+
     public function UtilAirDatabase() {
         NativeApplication.nativeApplication.addEventListener(InvokeEvent.INVOKE, onInvoke);
 
@@ -90,6 +91,12 @@ public class UtilAirDatabase extends Sprite {
                 case "password":
                     password = value;
                     break;
+                case "ignoreErr":
+                case "ignoreError":
+                case "ignoreSqlError":
+                case "ignoreSqlErr":
+                    ignoreSqlError = value == "true";
+                    break;
                 case "out":
                 case "output":
                     outputPath = value;
@@ -97,7 +104,14 @@ public class UtilAirDatabase extends Sprite {
                 case "decrypt":
                     decrypt = value == "true";
                     break;
+                case "socket":
+                    socketPort = parseInt(value);
+                    break;
             }
+        }
+
+        if (socketPort) {
+            enableSocketService(socketPort);
         }
 
         if (decrypt) {
@@ -120,17 +134,66 @@ public class UtilAirDatabase extends Sprite {
 
     }
 
+    private function enableSocketService(port:int):void {
+        socket = new Socket();
+        socket.addEventListener("connect", _onSocketConnect);
+        socket.addEventListener("close", _onSocketClose);
+        socket.addEventListener("socketData", _onSocketData);
+        socket.addEventListener("ioError", _onSocketError);
+        socket.addEventListener("securityError", _onSocketSecurityError);
+        socket.connect("127.0.0.1", port);
+        winTrace("Socket Service connected on port: " + port);
+    }
+    private function _onSocketError(e:*=null):void {
+        winTrace("Socket IO Error: " + e);
+    }
+    private function _onSocketSecurityError(e:*=null):void {
+        winTrace("Socket Security Error: " + e);
+    }
+    private function _onSocketConnect(e:*=null):void {
+        winTrace("Socket Connected");
+    }
+    private function _onSocketClose(e:*=null):void {
+        winTrace("Socket Closed");
+    }
+    private function _onSocketData(e:*=null):void {
+        var data:ByteArray = new ByteArray();
+        socket.readBytes(data, 0, socket.bytesAvailable);
+        var str:String = data.readUTFBytes(data.length);
+        trace("Socket Data: " + str);
+    }
+
+    public function sendSocketData(str:String):void {
+        if (socket) {
+            var data:ByteArray = new ByteArray();
+            data.writeUTFBytes(str);
+            socket.writeBytes(data);
+            socket.flush();
+        }
+    }
+    public function closeSocket():void {
+        if (socket) {
+            socket.removeEventListener("connect", _onSocketConnect);
+            socket.removeEventListener("close", _onSocketClose);
+            socket.removeEventListener("socketData", _onSocketData);
+            socket.removeEventListener("ioError", _onSocketError);
+            socket.removeEventListener("securityError", _onSocketSecurityError);
+            socket.close();
+            socket = null;
+        }
+    }
+
     /**
      * Decrypt the database. Save the database to the output path
      */
     protected function routineDecryptDatabase():void {
 
         if (dbPath == null || password==null) {
-            winTrace("No database or password provided to decrypt");
+            responseHandler(true, "No database or password provided to decrypt");
             return;
         }
         if (outputPath == null) {
-            winTrace("No output path provided for decryption");
+            responseHandler(true,"No output path provided for decryption");
             return;
         }
 
@@ -157,13 +220,13 @@ public class UtilAirDatabase extends Sprite {
 
 
         } catch (err:Error) {
-            winTrace("Error decrypting database");
-            winTrace(err.getStackTrace());
+            responseHandler(true, "Error decrypting database", err.getStackTrace());
             winTrace("Process Aborted");
             return;
         }
 
         winTrace("Process Completed");
+        responseHandler(false, "success");
 
     }
 
@@ -173,11 +236,11 @@ public class UtilAirDatabase extends Sprite {
     protected function routineSQLtoDatabase():void {
 
         if (sqlPath == null ) {
-            winTrace("No sql path provided");
+            responseHandler(true, "No sql path provided");
             return;
         }
         if (outputPath == null) {
-            winTrace("No output path provided");
+            responseHandler(true, "No output path provided");
             return;
         }
 
@@ -209,8 +272,7 @@ public class UtilAirDatabase extends Sprite {
                 sql = fs.readUTFBytes(fs.bytesAvailable);
                 fs.close();
             } catch (err:Error) {
-                winTrace("Error reading sql file", sqlPath);
-                winTrace(err);
+                responseHandler(true, "Error reading sql file", sqlPath, err);
                 return;
             }
 
@@ -224,21 +286,29 @@ public class UtilAirDatabase extends Sprite {
                 try {
                     exec(db.conn, command);
                 } catch (err:Error) {
-                    winTrace("Error executing command: " + command);
-                    winTrace(err);
+                    if (!ignoreSqlError) {
+                        db.conn.rollback();
+                        db.conn.close();
+                        responseHandler(true, "Error executing SQL command", command, err.getStackTrace());
+                        winTrace("Process Aborted");
+                        return;
+                    } else {
+                        winTrace("Error executing command: " + command);
+                        winTrace(err);
+                    }
                 }
             }
             db.conn.commit();
 
             db.conn.close();
         } catch (err:Error) {
-            winTrace("Error creating database from SQL:");
-            winTrace(err.getStackTrace());
+            responseHandler(true, "Error creating database from SQL:", err.getStackTrace());
             winTrace("Process Aborted");
             return;
         }
 
         winTrace("Process Completed");
+        responseHandler(false, "success");
     }
 
     /**
@@ -247,11 +317,11 @@ public class UtilAirDatabase extends Sprite {
     protected function routineDatabaseToDatabase():void {
 
         if (dbPath == null) {
-            winTrace("No database input path provided");
+            responseHandler(true,"No database input path provided");
             return;
         }
         if (outputPath == null) {
-            winTrace("No output path provided");
+            responseHandler(true,"No output path provided");
             return;
         }
 
@@ -283,13 +353,13 @@ public class UtilAirDatabase extends Sprite {
 
 
         } catch (err:Error) {
-            winTrace("Error creating database from Database:");
-            winTrace(err.getStackTrace());
+            responseHandler(true, "Error creating database from Database:", err.getStackTrace());
             winTrace("Process Aborted");
             return;
         }
 
         winTrace("Process Completed");
+        responseHandler(false, "success");
     }
 
     /**
@@ -304,26 +374,38 @@ public class UtilAirDatabase extends Sprite {
         source.conn.close();
 
         target.conn.begin();
-        var table:SQLTableSchema;
-        for each (table in result.tables) {
-            exec(target.conn, table.sql);
-            winTrace(table.sql);
-        }
-        for each (var indice:SQLIndexSchema in result.indices) {
-            exec(target.conn, indice.sql);
-        }
-        for each (var view:SQLViewSchema in result.views) {
-            exec(target.conn, view.sql);
-        }
-        target.conn.commit();
 
+        try {
+            var table:SQLTableSchema;
+            for each (table in result.tables) {
+                exec(target.conn, table.sql);
+                winTrace(table.sql);
+            }
+            for each (var indice:SQLIndexSchema in result.indices) {
+                exec(target.conn, indice.sql);
+            }
+            for each (var view:SQLViewSchema in result.views) {
+                exec(target.conn, view.sql);
+            }
+            target.conn.commit();
+        } catch (err:Error) {
+            target.conn.rollback();
+            target.conn.close();
+            throw err;
+        }
 
         target.attach(source, "source");
 
         target.conn.begin();
 
-        for each (table in result.tables) {
-            exec(target.conn, "INSERT INTO " + table.name + " SELECT * FROM source." + table.name + ";");
+        try {
+            for each (table in result.tables) {
+                exec(target.conn, "INSERT INTO " + table.name + " SELECT * FROM source." + table.name + ";");
+            }
+        } catch (err:Error) {
+            target.conn.rollback();
+            target.conn.close();
+            throw err;
         }
 
         target.conn.commit();
@@ -358,6 +440,19 @@ public class UtilAirDatabase extends Sprite {
         fs.open(file, FileMode.WRITE);
         fs.writeUTFBytes(logBuffer);
         fs.close();
+    }
+
+    public function responseHandler(isError:Boolean, ...messages):void {
+        var res:Object = {error:isError, message:null};
+        if (messages.length == 1) {
+            res.message = messages[0];
+        } else {
+            res.message = messages;
+        }
+        if (socket) {
+            sendSocketData(JSON.stringify(res));
+        }
+        winTrace.apply(null, messages);
     }
 
 }
