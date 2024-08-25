@@ -36,6 +36,7 @@ public class UtilAirDatabase extends Sprite {
     public var outputPath:String;
     public var nogui:Boolean = false;
     public var socketPort:int = 0;
+    public var socketCallback:int = 0;
 
     public function UtilAirDatabase() {
         NativeApplication.nativeApplication.addEventListener(InvokeEvent.INVOKE, onInvoke);
@@ -107,6 +108,10 @@ public class UtilAirDatabase extends Sprite {
                 case "socket":
                     socketPort = parseInt(value);
                     break;
+                case "socketcb":
+                    socketCallback = parseInt(value);
+                    break;
+
             }
         }
 
@@ -448,6 +453,9 @@ public class UtilAirDatabase extends Sprite {
             res.message = messages[0];
         } else {
             res.message = messages;
+        }
+        if (socketCallback > 0) {
+            res.cb = socketCallback;
         }
         if (socket) {
             sendSocketData(JSON.stringify(res));
